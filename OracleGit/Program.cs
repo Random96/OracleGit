@@ -24,21 +24,24 @@ namespace OracleGit
 
         static string BAD_EOL = "\r";
 
+        private static void DeleteDir(string  directoryPath)
+        {
+            foreach (var dir in Directory.EnumerateDirectories(directoryPath))
+                DeleteDir(dir);
+
+            foreach (var file in Directory.EnumerateFiles(directoryPath))
+            {
+                File.SetAttributes(file, FileAttributes.Normal);
+                File.Delete(file);
+            }
+
+            Directory.Delete(directoryPath);
+        }
+
         private static void UploadServer(Database.Database Server)
         {
             try
             {
-                List<DBObject> Obects = new List<DBObject>()
-                {
-                    new DBObject() { Name = "PROCEDURE", Ext = ".prc" },
-                    new DBObject() { Name = "FUNCTION", Ext = ".FNC" },
-                    new DBObject() { Name = "PACKAGE", Ext = ".SPC" },
-                    new DBObject() { Name = "PACKAGE BODY", Ext = ".BDY" },
-                    new DBObject() { Name = "TRIGGER", Ext = ".TRG" },
-                    new DBObject() { Name = "VIEW", Ext = ".SQL" },
-                    new DBObject() { Name = "TABLE", Ext = ".SQL" },
-                };
-
                 using (OracleConnection cn = new OracleConnection("User Id=" + Server.User + "; Password=" + Server.Password + "; Data Source=" + Server.Server + ";"))
                 {
                     try
@@ -59,36 +62,40 @@ namespace OracleGit
                     TmpDir += Server.Server;
 
                     if (System.IO.Directory.Exists(TmpDir))
-                        System.IO.Directory.Delete(TmpDir, true);
+                    {
+                        DeleteDir(TmpDir);
+                    }
 
                     System.IO.Directory.CreateDirectory(TmpDir);
                     try
                     {
                         using (Process myProcess = new Process())
                         {
+                            string sError = string.Empty;
+
                             myProcess.StartInfo.FileName = "git";
                             myProcess.StartInfo.CreateNoWindow = true;
                             myProcess.StartInfo.UseShellExecute = false;
                             myProcess.StartInfo.RedirectStandardInput = true;
                             myProcess.StartInfo.RedirectStandardOutput = true;
                             myProcess.StartInfo.RedirectStandardError = true;
-
+                            myProcess.ErrorDataReceived += new DataReceivedEventHandler((sender, e) => { sError += e.Data; });
                             myProcess.StartInfo.WorkingDirectory = TmpDir;
 
                             myProcess.StartInfo.Arguments = $"clone {Server.URL} {TmpDir}";
-                            // myProcess.StartInfo.Arguments = "co " + Server.URL + " " + TmpDir + " --force -q";
 #if DEBUG
                             Console.WriteLine($"check {Server.Server} begin");
 #endif
                             myProcess.Start();
 #if DEBUG
-                            string sError = myProcess.StandardError.ReadToEnd();
+                            myProcess.BeginErrorReadLine();
+                            myProcess.WaitForExit();
+
                             if (string.IsNullOrWhiteSpace(sError))
                                 Console.WriteLine("check out compleate");
                             else
                                 Console.WriteLine($"Error: {sError}");
 #endif
-                            myProcess.WaitForExit();
 
                             // OracleCommand CmdParse = new OracleCommand("SELECT DBMS_METADATA.GET_DDL( :OBJECT_TYPE, :NAME) FROM DUAL", cn);
                             using (OracleCommand CmdParse = new OracleCommand("SELECT TEXT FROM USER_SOURCE WHERE TYPE = :OBJECT_TYPE AND NAME = :NAME ORDER BY LINE", cn))
@@ -105,7 +112,7 @@ namespace OracleGit
                                         OracleParameter dType = Describe.Parameters.Add("B1", OracleDbType.Varchar2, ParameterDirection.Input);
                                         OracleParameter dName = Describe.Parameters.Add("B2", OracleDbType.Varchar2, ParameterDirection.Input);
 
-                                        foreach (DBObject dbObj in Obects)
+                                        foreach (DBObject dbObj in DBObject.dbObjects.Take(1))
                                         {
 #if DEBUG
                                             Console.WriteLine(dbObj.Name);
@@ -177,11 +184,15 @@ namespace OracleGit
                                                             myProcess.StartInfo.Arguments = "add " + fileName;
                                                             myProcess.Start();
 #if DEBUG
-                                                            sError = myProcess.StandardError.ReadToEnd();
+                                                            sError = string.Empty;
                                                             if (!string.IsNullOrWhiteSpace(sError))
                                                                 Console.WriteLine(sError);
 #endif
                                                             myProcess.WaitForExit();
+#if DEBUG
+                                                            if (!string.IsNullOrWhiteSpace(sError))
+                                                                Console.WriteLine(sError);
+#endif
                                                         }
 
                                                     }
@@ -191,27 +202,35 @@ namespace OracleGit
                                     }
                                 }
 
+                                Console.WriteLine("Commit begin");
+                                sError = string.Empty;
                                 myProcess.StartInfo.Arguments = $"commit -a -m \"daily commit on {DateTime.Now}\"";
                                 myProcess.Start();
 #if DEBUG
                                 Console.WriteLine(myProcess.StandardOutput.ReadToEnd());
-                                Console.WriteLine(myProcess.StandardError.ReadToEnd());
 #endif
-                                myProcess.WaitForExit();
+                                while (!myProcess.WaitForExit(1000));
+#if DEBUG
+                                Console.WriteLine(sError);
+#endif
 
+                                Console.WriteLine("Push begin");
+                                sError = string.Empty;
                                 myProcess.StartInfo.Arguments = $"push";
                                 myProcess.Start();
 #if DEBUG
                                 Console.WriteLine(myProcess.StandardOutput.ReadToEnd());
-                                Console.WriteLine(myProcess.StandardError.ReadToEnd());
 #endif
                                 myProcess.WaitForExit();
+#if DEBUG
+                                Console.WriteLine(sError);
+#endif
                             }
                         }
                     }
                     finally
                     {
-                        System.IO.Directory.Delete(TmpDir, true);
+                        DeleteDir(TmpDir);
                     }
                 }
             }
