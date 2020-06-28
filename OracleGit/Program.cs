@@ -112,7 +112,7 @@ namespace OracleGit
                                         OracleParameter dType = Describe.Parameters.Add("B1", OracleDbType.Varchar2, ParameterDirection.Input);
                                         OracleParameter dName = Describe.Parameters.Add("B2", OracleDbType.Varchar2, ParameterDirection.Input);
 
-                                        foreach (DBObject dbObj in DBObject.dbObjects.Take(1))
+                                        foreach (DBObject dbObj in DBObject.dbObjects)
                                         {
 #if DEBUG
                                             Console.WriteLine(dbObj.Name);
